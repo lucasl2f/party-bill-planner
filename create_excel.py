@@ -1,118 +1,155 @@
-from openpyxl import Workbook
-from openpyxl.utils import get_column_letter
-from openpyxl.styles import PatternFill, Alignment, Font
+import xlsxwriter
+
 
 def create_excel(servico, credores):
-    # Create a new Workbook
-    wb = Workbook()
+    # Create a new workbook and add a worksheet
+    workbook = xlsxwriter.Workbook("my_spreadsheet.xlsx")
+    worksheet = workbook.add_worksheet()
 
-    # Get the active sheet
-    sheet = wb.active
+    # Define formats
+    header_format = workbook.add_format(
+        {
+            "bg_color": "#82cfe8",  # same as your PatternFill
+            "bold": True,
+            "align": "center",
+            "valign": "vcenter",
+        }
+    )
+
+    currency_format = workbook.add_format(
+        {
+            "num_format": "R$ #,##0.00",
+        }
+    )
+
+    gray_row_format = workbook.add_format(
+        {
+            "bg_color": "#DDDDDD",
+        }
+    )
 
     # Set headers
-    format_cell(sheet['A1'], "Serviço")
-    format_cell(sheet['B1'], "Credor")
+    worksheet.write("A1", "Serviço", header_format)
+    worksheet.write("B1", "Credor", header_format)
 
-    # Set cell dimensions 
-    sheet.column_dimensions['A'].width = 50
-    sheet.row_dimensions[1].height = 30
+    # Set column width
+    worksheet.set_column("A:A", 50)
+    worksheet.set_row(0, 30)  # row 1 (0-indexed) height
 
-    # Calculate the ending column letter
-    end_credor_letter = get_column_letter(len(credores) + 1)
-    sheet.merge_cells(f'B1:{end_credor_letter}1')
+    # Calculate column letters
+    num_credores = len(credores)
+    end_credor_col = 1 + num_credores  # B + N credores
+    total_col = end_credor_col + 1  # Total column
+    participants_col = total_col + 1  # Participants start
+    participants_total_col = (
+        participants_col + num_credores - 1 + 1
+    )  # Participants Total
+    balance_col = participants_total_col + 1  # Balance start
+    balance_end_col = balance_col + num_credores - 1  # Balance end
+
+    # Merge cells for Credor header
+    worksheet.merge_range(0, 1, 0, end_credor_col, "Credor", header_format)
 
     # Total column
-    total_column_letter = get_column_letter(len(credores) + 2)
-    format_cell(sheet[f'{total_column_letter}1'], "Total")
+    worksheet.write(0, total_col, "Total", header_format)
 
-    # Participants column
-    participants_column_letter = get_column_letter(len(credores) + 3)
-    end_participants_column_letter = get_column_letter(len(credores) + 3 + len(credores) - 1)
-    format_cell(sheet[f'{participants_column_letter}1'], "Participantes")
-    sheet.merge_cells(f'{participants_column_letter}1:{end_participants_column_letter}1')
+    # Participants header
+    worksheet.merge_range(
+        0,
+        participants_col,
+        0,
+        participants_total_col - 1,
+        "Participantes",
+        header_format,
+    )
+    worksheet.write(0, participants_total_col, "Total", header_format)
 
-    # Total column
-    participants_total_column_letter = get_column_letter(len(credores) + 3 + len(credores))
-    format_cell(sheet[f'{participants_total_column_letter}1'], "Total")
+    # Balance header
+    worksheet.merge_range(
+        0, balance_col, 0, balance_end_col, "Balanço geral", header_format
+    )
 
-    # Balance column
-    balance_column_letter = get_column_letter(len(credores) + 3 + len(credores) + 1)
-    end_balance_column_letter = get_column_letter(len(credores) + 3 + len(credores) + len(credores))
-    format_cell(sheet[f'{balance_column_letter}1'], "Balanço geral")
-    sheet.merge_cells(f'{balance_column_letter}1:{end_balance_column_letter}1')
+    # Add Credores (row 2, 0-indexed row 1)
+    for idx, nome in enumerate(credores):
+        col = 1 + idx
+        worksheet.write(1, col, nome, header_format)
+        worksheet.set_column(col, col, 12)
 
-    # Add Credores
-    for index, nome in enumerate(credores, start=2):
-        cell = sheet.cell(row=2, column=index, value=nome)
-        cell.alignment = Alignment(horizontal='center', vertical='center')
-        sheet.column_dimensions[get_column_letter(index)].width = 12
+    # Add Participants (row 2, same row as credores)
+    for idx, nome in enumerate(credores):
+        col = participants_col + idx
+        worksheet.write(1, col, nome, header_format)
+        worksheet.set_column(col, col, 12)
 
-    sum_total_formula=f"=SUM({get_column_letter(len(credores) + 2)}4:{get_column_letter(len(credores) + 2)}10000)"
-    sheet.cell(row=3, column=len(credores) + 2, value=sum_total_formula).number_format = 'R$ #,##0.00'
+    # Add Balance credores (row 2)
+    for idx, nome in enumerate(credores):
+        col = balance_col + idx
+        worksheet.write(1, col, nome, header_format)
+        worksheet.set_column(col, col, 12)
 
-    # Set Credores number format 
-    for i in range(0, len(credores) + 1):
-        for row in range(4, 50):
-            sheet.cell(row=row, column=1 + i, value="").number_format = 'R$ #,##0.00'
+    # Total formula for each row (row 4 to 50, 0-indexed row 3 to 49)
+    total_col_letter = xlsxwriter.utility.xl_col_to_name(total_col)
+    for row in range(3, 50):
+        start_col_letter = xlsxwriter.utility.xl_col_to_name(1)
+        end_col_letter = xlsxwriter.utility.xl_col_to_name(end_credor_col)
+        formula = f"=SUM({start_col_letter}{row + 1}:{end_col_letter}{row + 1})"
+        worksheet.write_formula(row, total_col, formula, currency_format)
 
-    # Sum values for "Total" column
-    for row in range(4, 50):
-        total_formula = f"=SUM(B{row}:{get_column_letter(len(credores) + 1)}{row})"
-        sheet.cell(row=row, column=len(credores) + 2, value=total_formula).number_format = 'R$ #,##0.00'
+    # Sum of Total column (row 3, 0-indexed row 2)
+    sum_total_formula = f"=SUM({total_col_letter}4:{total_col_letter}10000)"
+    worksheet.write_formula(2, total_col, sum_total_formula, currency_format)
 
-    # Add Participants
-    for index, nome in enumerate(credores, start=len(credores) + 3):
-        cell = sheet.cell(row=2, column=index, value=nome)
-        cell.alignment = Alignment(horizontal='center', vertical='center')
-        sheet.column_dimensions[get_column_letter(index)].width = 12
+    # Participants Total formula for each row
+    participants_total_col_letter = xlsxwriter.utility.xl_col_to_name(
+        participants_total_col
+    )
+    participants_start_col_letter = xlsxwriter.utility.xl_col_to_name(participants_col)
+    participants_end_col_letter = xlsxwriter.utility.xl_col_to_name(
+        participants_total_col - 1
+    )
+    for row in range(3, 50):
+        formula = f"=SUM({participants_start_col_letter}{row + 1}:{participants_end_col_letter}{row + 1})"
+        worksheet.write_formula(row, participants_total_col, formula)
 
-    # Sum values for "Total" column
-    for row in range(4, 50):
-        total_formula = f"=SUM({participants_column_letter}{row}:{end_participants_column_letter}{row})"
-        sheet.cell(row=row, column=len(credores) + 3 + len(credores), value=total_formula)
+    # Sum of Participants Total column
+    sum_total_participants_formula = (
+        f"=SUM({participants_total_col_letter}4:{participants_total_col_letter}10000)"
+    )
+    worksheet.write_formula(2, participants_total_col, sum_total_participants_formula)
 
-    sum_total_participants_formula=f"=SUM({participants_total_column_letter}4:{participants_total_column_letter}10000)"
-    sheet.cell(row=3, column=len(credores) + 3 + len(credores), value=sum_total_participants_formula)
+    # Balance formulas
+    total_col_letter = xlsxwriter.utility.xl_col_to_name(total_col)
+    participants_total_col_letter = xlsxwriter.utility.xl_col_to_name(
+        participants_total_col
+    )
+    for i in range(num_credores):
+        row_credor_letter = xlsxwriter.utility.xl_col_to_name(1 + i)
+        row_participant_letter = xlsxwriter.utility.xl_col_to_name(participants_col + i)
+        balance_col_idx = balance_col + i
+        balance_col_letter = xlsxwriter.utility.xl_col_to_name(balance_col_idx)
 
-    # Add credores to balance
-    for index, nome in enumerate(credores, start=len(credores) + 3 + len(credores) + 1):
-        cell = sheet.cell(row=2, column=index, value=nome)
-        cell.alignment = Alignment(horizontal='center', vertical='center')
-        sheet.column_dimensions[get_column_letter(index)].width = 12
+        # Sum formula for balance header (row 3, 0-indexed row 2)
+        sum_balance_formula = f"=SUM({balance_col_letter}4:{balance_col_letter}50)"
+        worksheet.write_formula(
+            2, balance_col_idx, sum_balance_formula, currency_format
+        )
 
-    # Populate balance
-    for i in range (0, len(credores)):
-        row_credor = get_column_letter(2 + i)
-        row_participant = get_column_letter(len(credores) + 3 + i)
-        column_balance = len(credores) + 3 + len(credores) + 1 + i
-        sheet.cell(row=3, column=column_balance, value=f"=SUM({get_column_letter(column_balance)}4:{get_column_letter(column_balance)}50)").number_format = 'R$ #,##0.00'
+        # Balance formula for each row
+        for row in range(3, 50):
+            formula = f"=IFS({row_participant_letter}{row + 1} >= 1, {row_credor_letter}{row + 1}-({row_participant_letter}{row + 1}*(${total_col_letter}{row + 1}/${participants_total_col_letter}{row + 1})), {row_participant_letter}{row + 1} = 0, {row_credor_letter}{row + 1})"
+            worksheet.write_formula(row, balance_col_idx, formula)
 
-        print(f"row_credor: {row_credor}")
-        print(f"row_participant: {row_participant}")
-        print(f"column_balance: {column_balance}")
+    # Apply gray fill to row 3 (0-indexed row 2)
+    for col in range(0, balance_end_col + 1):
+        worksheet.write(2, col, "", gray_row_format)
 
-        for row in range(4, 50):
-            total_formula = f"=IFS({row_participant}{row} >= 1, {row_credor}{row}-({row_participant}{row}*(${total_column_letter}{row}/${participants_total_column_letter}{row})),{row_participant}{row} = 0, {row_credor}{row})"
-            sheet.cell(row=row, column=column_balance, value=total_formula)
+    # Close the workbook
+    workbook.close()
 
-    # Set fill color for the rows
-    gray_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
-    for row in sheet.iter_rows(min_row=3, max_row=3):
-        for cell in row:
-            cell.fill = gray_fill
+    print(
+        f"Excel file created with structure: Serviço, Credor, {', '.join(credores)}, Total"
+    )
 
-    # Save the workbook to a local file
-    wb.save("my_spreadsheet.xlsx")
-
-    print(f"Excel file created with structure: Serviço, Credor, {', '.join(credores)}, Total")
-
-
-def format_cell(cell, value):
-    header_fill = PatternFill(start_color="82cfe8", end_color="82cfe8", fill_type="solid")
-    cell.value = value
-    cell.fill = header_fill
-    cell.font = Font(bold=True)
-    cell.alignment = Alignment(horizontal='center', vertical='center')
 
 # Example usage
 servico = "Consultoria"
